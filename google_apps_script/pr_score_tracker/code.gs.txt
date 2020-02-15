@@ -1,0 +1,158 @@
+String.prototype.replaceAll = function(search, replacement) {
+        var target = this;
+        return target.replace(new RegExp(search, 'g'), replacement);
+};
+
+function getPRScoreDetails(){
+  var crsData = getLastRoundDetails(); 
+  checkAndUpdateLastDrawDate(crsData);
+}
+
+function checkAndUpdateLastDrawDate(crsData){
+  var scoreDetailsSheet = SpreadsheetApp.getActive().getSheetByName("Score Details");
+  var lastRow = scoreDetailsSheet.getDataRange().getLastRow();
+  
+  var dateOfLatestRound = scoreDetailsSheet.getRange(lastRow,2).getValue();
+  var crsScoreOfLatestRound = scoreDetailsSheet.getRange(lastRow,3).getValue().toFixed(0);
+  
+  if(dateOfLatestRound === crsData.dateOfLastRound && crsScoreOfLatestRound === crsData.lastCRSScore)
+    Logger.log("sameee. no need to update");
+  else{
+    scoreDetailsSheet.getRange(lastRow+1,1,1,3).setValues([[lastRow,crsData.dateOfLastRound,crsData.lastCRSScore]]);
+    sendEmail(scoreDetailsSheet,crsData);
+  }
+}
+
+function sendEmail(scoreDetailsSheet, crsData){
+  var emailBody = createCRSScoreSummaryHtml(scoreDetailsSheet);
+  
+  MailApp.sendEmail({
+    to: "amal@yahoo.co.in",
+    subject: "Alert!!! CRS Draw conducted."+crsData.lastCRSScore+" is the latest score!!",
+    htmlBody: emailBody});
+}
+
+function createCRSScoreSummaryHtml(scoreDetailsSheet){
+  var scoreSummaryHtml = "";
+  var lastRow = scoreDetailsSheet.getDataRange().getLastRow();
+  var crsScoreSummary = scoreDetailsSheet.getRange(2, 1, lastRow-1, 3).getValues();
+  
+  scoreSummaryHtml = scoreSummaryHtml + "<b><u><p> CRS Score Summary </p></u></b>";
+  
+  if(crsScoreSummary.length.toFixed(0)>0){  
+      scoreSummaryHtml = scoreSummaryHtml + "<style>"+
+      "#customers {"+
+      "font-size: 10px;"+
+      "font-family: \"Trebuchet MS\", Arial, Helvetica, sans-serif;"+
+      "border-collapse: collapse;"+
+      "width: 100%;"+
+      "}"+
+      "#customers td, #customers th {"+
+      "border: 1px solid #ddd;"+
+      "padding: 8px;"+
+      "}"+
+      "#customers tr:nth-child(even){background-color: #f2f2f2;}"+
+      //"#customers tr:hover {background-color: #ddd;}"+
+      "#customers th {"+
+      "padding-top: 12px;"+
+      "padding-bottom: 12px;"+
+      "text-align: left;"+
+      "background-color: #4CAF50;"+
+      "color: white;"+
+      "}"+
+      "</style>"+
+      "<table id=\"customers\">"+
+                           "<tr>"+
+                           "<th>Date</th><th>Score</th>"+ 
+                           "</tr>";
+
+      for(var row=crsScoreSummary.length-1;row>=0;row--){  
+        scoreSummaryHtml = scoreSummaryHtml + "<tr>";
+        scoreSummaryHtml = scoreSummaryHtml + "<td>"+crsScoreSummary[row][1]+"</td>"+"<td>"+crsScoreSummary[row][2]+"</td>";
+        scoreSummaryHtml = scoreSummaryHtml + "</tr>";
+      }
+      
+      scoreSummaryHtml = scoreSummaryHtml + "</table><br />";
+  }
+  
+  return scoreSummaryHtml;
+}
+
+
+function getLastRoundDetails() {
+  
+//  var response = UrlFetchApp.fetch ("https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/submit-profile/rounds-invitations.html");
+//  var immigrationHtml = response.getContentText("UTF-8");
+//  
+//  /*immigrationHtml = immigrationHtml.replaceAll("&nbsp;","").replaceAll("&nbsp","").replaceAll("javascript\"\"","javascript\"").replaceAll("&copy;","");
+//  immigrationHtml = immigrationHtml.replace("//<![CDATA[","").replaceAll("//]]>","");
+//  immigrationHtml = immigrationHtml.replaceAll("<script", "<script><![CDATA[<script");
+//  immigrationHtml = immigrationHtml.replaceAll("</script>","</script>  ]]></script>");
+//  */immigrationHtml = immigrationHtml.replaceAll("<!doctype html>","");
+//  immigrationHtml = immigrationHtml.replaceAll("<head", "<script><![CDATA[<head");
+//  immigrationHtml = immigrationHtml.replaceAll("</head>","</head>  ]]></script>");
+//  
+//  //immigrationHtml = immigrationHtml.replaceAll("terms/"//>","terms/"/> ]]></script>");
+//  //immigrationHtml = immigrationHtml.replaceAll("<link rel=\"schema.dcterms\"","<script><![CDATA[<link rel=\"schema.dcterms\"");
+//  
+//  var responseXml = XmlService.parse(immigrationHtml);
+//  
+//  var lastRoundHtml = getElementsByClassName(responseXml.getRootElement(), 'mwsgeneric-base-html parbase section');
+//  var lastRoundDetails = lastRoundHtml[1];
+
+  var crsData = {};
+  var html = fetchCRSHtmlData();
+  var lastRoundDetailHtml = html.lastRoundDetailHtml;
+  var scoreDistributionHtml = html.scoreDistributionHtml;
+  var lastMonthConsumptionDetails = lastRoundDetailHtml[1].getChildren('p');
+  var dateTimeOfLastRound = lastMonthConsumptionDetails[5].getValue();
+  
+  var dateOfLastRound = dateTimeOfLastRound.split(":")[1].split("at")[0].trim();
+  var lastCRSScore = lastMonthConsumptionDetails[6].getValue().split(":")[1].trim();
+  crsData.dateOfLastRound=dateOfLastRound;
+  crsData.lastCRSScore=lastCRSScore;
+  crsData.scoreDistributionHtml = scoreDistributionHtml;
+  
+  return crsData;
+}
+
+function fetchCRSHtmlData()
+{
+  var html = {};
+  var page = UrlFetchApp.fetch("https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/submit-profile/rounds-invitations.html");
+  var doc = Xml.parse(page, true);
+  var bodyHtml = doc.html.body.toXmlString();
+  doc = XmlService.parse(bodyHtml);
+  var root = doc.getRootElement();
+  html.lastRoundDetailHtml = getElementsByClassName(root, 'mwsgeneric-base-html parbase section');
+  html.scoreDistributionHtml = getElementsByClassName(root, 'table');
+  
+  return html;
+}
+
+
+function getElementsByClassName(element, classToFind) {  
+  var data = [];
+  var descendants = element.getDescendants();
+  descendants.push(element);  
+  for(i in descendants) {
+    var elt = descendants[i].asElement();
+    if(elt != null) {
+      var classes = elt.getAttribute('class');
+      if(classes != null) {
+        classes = classes.getValue();
+        if(classes == classToFind) data.push(elt);
+        else {
+          classes = classes.split(' ');
+          for(j in classes) {
+            if(classes[j] == classToFind) {
+              data.push(elt);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+  return data;
+}

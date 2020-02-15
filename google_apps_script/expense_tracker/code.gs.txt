@@ -1,0 +1,449 @@
+function trackExpenses(){
+  var expensesArray = retrieveRBCExpensesFromEmail();
+  
+  var monthlyExpensesMap = groupExpensesByMonth(expensesArray);
+  var updateStatus = updateExpensesToSheet(monthlyExpensesMap);
+  
+  if(updateStatus){
+    updateMonthlySummary(monthlyExpensesMap);
+    updateYearlySummary();
+  }
+  
+  sendEmail();
+  
+}
+
+function getMonthlySummaryChart(){
+  var monthlySummarySheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Monthly Summary");
+  var lastRow = monthlySummarySheet.getDataRange().getLastRow();
+  var startRow = 2;
+  
+  if(lastRow > 1.0){
+      lastRow = lastRow.toFixed(0);
+      
+      if(lastRow > 11){
+        startRow = lastRow%11; // To display only the last 12 months
+      }
+      
+      var monthlySummaryDataRange = monthlySummarySheet.getRange(startRow, 1, lastRow, 2);;
+      var series = { 0: { dataLabel: "value" } };
+   
+      var monthlySummaryChart = monthlySummarySheet.newChart()
+      .asColumnChart().setYAxisTitle("Dollars Spent").setXAxisTitle("Month")
+      //.setChartType(Charts.ChartType.COLUMN)
+      .addRange(monthlySummaryDataRange)
+      .setPosition(5, 5, 0, 0).setOption('title', "Expense Summary By Month").setOption('series', series).setOption('colors', ['Turquoise'])
+      //.setOption('titleTextStyle',{ "fontSize": 12, "bold": true })
+      //.setOption("useFirstColumnAsDomain", true)
+      //.setOption('applyAggregateData',0)
+      .build();
+
+      return monthlySummaryChart;
+  }else
+      return null;
+}
+
+function getYearlySummaryChart(){
+  var yearlySummarySheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Yearly Summary");
+  var lastRow = yearlySummarySheet.getDataRange().getLastRow();
+  var startRow = 2;
+  
+  if(lastRow > 1.0){
+      lastRow = lastRow.toFixed(0);
+      
+      if(lastRow > 5){
+        startRow = lastRow%5; // To display only the last 5 Years
+      }
+  
+      var yearlySummaryDataRange = yearlySummarySheet.getRange(startRow, 1, lastRow, 2);;
+      var series = { 0: { dataLabel: "value" } };
+      
+      var yearlySummaryChart = yearlySummarySheet.newChart()
+        .asColumnChart().setYAxisTitle("Dollars Spent").setXAxisTitle("Year")
+        //.setChartType(Charts.ChartType.COLUMN)
+        .addRange(yearlySummaryDataRange)
+        .setPosition(5, 5, 0, 0).setOption('title', "Expense Summary By Year").setOption('series', series).setOption('colors', ['orange'])
+        //.setOption('titleTextStyle',{ "fontSize": 12, "bold": true })
+        .setOption("useFirstColumnAsDomain", true)
+        //.setOption("applyAggregateData",0)
+        .build();
+            
+       return yearlySummaryChart;
+   }else{
+       return null;
+   }
+}
+
+function getImages(){
+  var chartBlobs=new Array(2); 
+  var summaryImages={};
+  
+  summaryImages["monthlySummaryChart"] = getMonthlySummaryChart().getAs("image/png").setName("monthlySummaryChart");
+  summaryImages["yearlySummaryChart"]  = getYearlySummaryChart().getAs("image/png").setName("yearlySummaryChart");
+  
+  return summaryImages;
+}
+
+function sendEmail(){
+  var emailBody = createExpenseSummaryHtml();
+  var emailImages = getImages();
+
+  MailApp.sendEmail({
+    to: "amal@yahoo.com",
+    subject: "Expense Report",
+    htmlBody: emailBody,
+    inlineImages:emailImages});
+}
+
+function createExpenseSummaryHtml(){
+  var summaryImages={};
+  var expenseSummaryHtml = "";
+  var currentMonthSheetName = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "MMM-yyyy");
+  var monthlyExpenseSheet = getSheet(currentMonthSheetName,"Expense");
+  var lastRow = monthlyExpenseSheet.getDataRange().getLastRow();
+  var monthlyExpenseSummary = monthlyExpenseSheet.getRange(2, 1, lastRow-1, 3).getValues();
+  var currentMonthTotalExpenses = 0;
+  
+  expenseSummaryHtml = expenseSummaryHtml + "<b><u><p> Current Month Expenses </p></u></b>";
+    
+  if(monthlyExpenseSummary.length.toFixed(0)>0){  
+      expenseSummaryHtml = expenseSummaryHtml + "<style>"+
+      "#customers {"+
+      "font-size: 10px;"+
+      "font-family: \"Trebuchet MS\", Arial, Helvetica, sans-serif;"+
+      "border-collapse: collapse;"+
+      "width: 100%;"+
+      "}"+
+      "#customers td, #customers th {"+
+      "border: 1px solid #ddd;"+
+      "padding: 8px;"+
+      "}"+
+      "#customers tr:nth-child(even){background-color: #f2f2f2;}"+
+      //"#customers tr:hover {background-color: #ddd;}"+
+      "#customers th {"+
+      "padding-top: 12px;"+
+      "padding-bottom: 12px;"+
+      "text-align: left;"+
+      "background-color: #4CAF50;"+
+      "color: white;"+
+      "}"+
+      "</style>"+
+      "<table id=\"customers\">"+
+                           "<tr>"+
+                           "<th>Date</th><th>Description</th><th>Amount</th>"+ 
+                           "</tr>";
+
+      for(var row=0;row<monthlyExpenseSummary.length;row++){  
+        expenseSummaryHtml = expenseSummaryHtml + "<tr>";
+        expenseSummaryHtml = expenseSummaryHtml + "<td>"+Utilities.formatDate(monthlyExpenseSummary[row][0], 'EST', 'dd/MMM/yyyy HH:mm')+"</td>"+"<td>"+monthlyExpenseSummary[row][1]+"</td>"+"<td>$"+monthlyExpenseSummary[row][2]+"</td>";
+        expenseSummaryHtml = expenseSummaryHtml + "</tr>";
+        currentMonthTotalExpenses = currentMonthTotalExpenses + monthlyExpenseSummary[row][2];
+      }
+      
+      if(monthlyExpenseSummary.length > 0){
+         expenseSummaryHtml = expenseSummaryHtml + "<tr>";
+         expenseSummaryHtml = expenseSummaryHtml + "<td></td>"+"<td><b>Total</b></td>"+"<td>$"+currentMonthTotalExpenses.toFixed(2)+"</td>";
+         expenseSummaryHtml = expenseSummaryHtml + "</tr>";
+      }
+      
+      expenseSummaryHtml = expenseSummaryHtml + "</table><br />";
+  }
+  
+  expenseSummaryHtml = expenseSummaryHtml + "<b><u><p>Expense Summary by Month</p></u></b>";
+  expenseSummaryHtml = expenseSummaryHtml + "<p align='center'><img src='cid:monthlySummaryChart'></p>";
+  
+  expenseSummaryHtml = expenseSummaryHtml + "<br /> <b><u><p>Expense Summary by Year</p></u></b>";
+  expenseSummaryHtml = expenseSummaryHtml + "<p align='center'><img src='cid:yearlySummaryChart'></p>";
+  
+  return expenseSummaryHtml;
+}
+
+function updateMonthlySummary(monthlyExpensesMap){
+  var monthlySummaryMap = {};
+  var lastRow = 2;
+  
+  for (monthKey in monthlyExpensesMap){
+    var expenseSheet = getSheet(monthKey, "Expense");
+    var lastRow = expenseSheet.getDataRange().getLastRow();
+    var monthTotal = 0;
+    
+    var expenseDetails = expenseSheet.getRange(2, 1, lastRow-1, 3).getValues();
+    
+    for (var row in expenseDetails) {
+      monthTotal = monthTotal+expenseDetails[row][2];
+    }
+    
+    monthlySummaryMap[monthKey] = monthTotal;
+  }
+   
+  var monthlySummarySheet = getSheet("Monthly Summary","Monthly Summary");
+  
+  for (monthKey in monthlyExpensesMap){
+    var matchingRow = getRowOfMonthYear(monthlySummarySheet,monthKey);
+    var monthTotal = monthlySummaryMap[monthKey];
+  
+    if(matchingRow.toFixed(0)>1){
+       monthlySummarySheet.getRange("B"+matchingRow).setValue(monthTotal);
+    }else{
+       lastRow = monthlySummarySheet.getDataRange().getLastRow();
+       monthlySummarySheet.getRange(lastRow+1,1,1,2).setValues([[monthKey,monthTotal]]);
+    }
+  }
+  
+  lastRow = monthlySummarySheet.getDataRange().getLastRow();
+  monthlySummarySheet.getRange(2, 1, lastRow-1, 2).sort(1);
+}
+
+function updateYearlySummary(){
+  var monthlySummarySheet = getSheet("Monthly Summary","Monthly Summary");
+  var lastRow = monthlySummarySheet.getDataRange().getLastRow();
+  var monthlySummaryDetails = monthlySummarySheet.getRange(2, 1, lastRow-1, 2).getValues();
+  var yearlySummaryMap = {};
+  var yearlyTotal = 0;
+  
+  for (var row in monthlySummaryDetails) {
+    
+    var year = Utilities.formatDate(monthlySummaryDetails[row][0], Session.getScriptTimeZone(), "yyyy");
+    var monthTotal = monthlySummaryDetails[row][1];
+    
+    if(year in yearlySummaryMap)
+       yearlyTotal = yearlySummaryMap[year];
+    else{
+       yearlyTotal = 0;
+       yearlySummaryMap[year] = 0;
+    }
+    
+    yearlyTotal = yearlyTotal+monthTotal;
+    yearlySummaryMap[year] = yearlyTotal;
+  }
+  
+  var yearlySummarySheet = getSheet("Yearly Summary","Yearly Summary");
+  
+  for (yearKey in yearlySummaryMap){
+    var matchingRow = getRowOfYear(yearlySummarySheet,yearKey);
+    var yearTotal = yearlySummaryMap[yearKey];
+  
+    if(matchingRow.toFixed(0)>1){
+       yearlySummarySheet.getRange("B"+matchingRow).setValue(yearTotal);
+    }else{
+       var lastRow = yearlySummarySheet.getDataRange().getLastRow();
+       yearlySummarySheet.getRange(lastRow+1,1,1,2).setValues([[yearKey,yearTotal]]);
+    }
+  }
+
+  lastRow = yearlySummarySheet.getDataRange().getLastRow();
+  yearlySummarySheet.getRange(2, 1, lastRow-1, 2).sort(1);
+}
+
+function getRowOfYear(yearlySummarySheet, year){
+  var lastRow = yearlySummarySheet.getDataRange().getLastRow();
+  var matchRow = 0;
+  
+  if(lastRow > 1){
+    var yearlySummaryData = yearlySummarySheet.getRange(2, 1, lastRow-1, 2).getValues();
+  
+    for(var i = 0; i<yearlySummaryData.length;i++){  
+      if(yearlySummaryData[i][0].toFixed(0) === yearKey){
+        matchRow = i+2;
+      }
+    }
+  }
+  
+  return matchRow;
+}
+
+function getRowOfMonthYear(monthlySummarySheet, monthYear){
+  var lastRow = monthlySummarySheet.getDataRange().getLastRow();
+  var matchRow = 0;
+  
+  if(lastRow > 1){
+      var monthlySummaryData = monthlySummarySheet.getRange(2, 1, lastRow-1, 2).getValues();
+  
+      for(var i = 0; i<monthlySummaryData.length;i++){
+        if(Utilities.formatDate(monthlySummaryData[i][0], Session.getScriptTimeZone(), "MMM-yyyy") === monthYear){
+          matchRow = i+2;
+        }
+      }
+  }
+  
+  return matchRow;
+}
+
+function updateExpensesToSheet(monthlyExpensesMap){
+  var updateStatus = false;
+  var expenseSheet;
+  
+  for (monthKey in monthlyExpensesMap) {
+    expenseSheet = getSheet(monthKey, "Expense");
+    var lastRow = expenseSheet.getDataRange().getLastRow();
+    var monthlyExpenses = monthlyExpensesMap[monthKey];
+    expenseSheet.getRange(lastRow+1,1,monthlyExpenses.length,3).setValues(monthlyExpenses);
+    updateStatus = true;
+    removeDuplicateRows(expenseSheet);
+  }
+  
+  if(updateStatus){
+    var lastRow = expenseSheet.getDataRange().getLastRow();
+    expenseSheet.getRange(2, 1, lastRow-1, 3).sort(1);
+  }
+  
+  return updateStatus;
+}
+
+
+function groupExpensesByMonth(expensesArray){
+  var monthlyExpensesMap = {};
+  var expense = [];
+  var key = "";
+  var expensesByMonth = [];
+  
+  for(var i=0; i<expensesArray.length; i++){
+     expense = expensesArray[i];
+     var date = expense[0].split(" ");
+     var key = date[0].split("/")[1]+"-"+date[0].split("/")[2];
+     
+     if(key in monthlyExpensesMap)
+       expensesByMonth = monthlyExpensesMap[key];
+     else{
+       expensesByMonth = [];
+       monthlyExpensesMap[key] = [];
+     }
+     
+     expensesByMonth.push(expense);
+     monthlyExpensesMap[key] = expensesByMonth;
+  }
+  
+  return monthlyExpensesMap;
+}
+
+function retrieveRBCExpensesFromEmail(){
+  var rbcLabel   = GmailApp.getUserLabelByName("Personal/RBC");
+  var expensesArray = [];
+  var threads    = rbcLabel.getThreads();
+  
+  // get all threads with label - Personal/RBC
+  for (var i = 0; i < threads.length; i++) 
+  {
+    //get message details
+    var messages = threads[i].getMessages();
+    var archiveLabel = GmailApp.getUserLabelByName("Personal/ExpenseArchived"); 
+    
+    for (var j=0; j < messages.length; j++) 
+    {
+      var email = messages[j];
+      var subject = email.getSubject();
+      var body = email.getPlainBody();
+      var from = email.getFrom();
+      var subject = email.getSubject();
+      
+      if(from.indexOf("RBC") > -1 && subject.indexOf("made a purchase") > -1)
+      {
+          var purchaseAmount = body.substring(body.lastIndexOf("Purchase Amount:"), body.lastIndexOf("Transaction Date:"));
+          var transDescription = body.substring(body.lastIndexOf("Transaction Description:"), body.lastIndexOf("Available credit:"));
+          var amount = 0;
+          var description = "";
+          var expense = [];
+      
+          if(purchaseAmount){
+            expense[2] = purchaseAmount.split("$")[1].trim();
+          }else{
+            expense[2] = 0;
+          }
+      
+          if(transDescription){
+            expense[1] = transDescription.split(":")[1].trim();
+          }else{
+            expense[1] = "NA";
+          }
+      
+          expense[0] = Utilities.formatDate(email.getDate(), 'EST', 'dd/MMM/yyyy HH:mm');
+          
+          expensesArray.push(expense);
+       }else if(from.indexOf("TD Canada") > -1 && subject.indexOf("money transfer") > -1)
+       {
+         var purchaseAmount = body.substring(body.indexOf("$"), body.indexOf("(CAD)"));
+         var transDescription = body.substring(body.lastIndexOf("you sent"), body.lastIndexOf(" has been succ"));
+         var expense = [];
+         
+         expense[2] = purchaseAmount;
+         if(transDescription){
+            expense[1] = transDescription;
+          }else{
+            expense[1] = "NA";
+          }
+          
+         expense[0] = Utilities.formatDate(email.getDate(), 'EST', 'dd/MMM/yyyy HH:mm');
+         
+         expensesArray.push(expense);
+       }
+       threads[i].addLabel(archiveLabel);
+       threads[i].removeLabel(rbcLabel);
+    }
+    
+  }
+  
+  Logger.log("data="+expensesArray);
+  
+  return expensesArray;
+}
+
+
+function getSheet(sheetName, sheetType)
+{
+  var sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  
+   if(!sheet) {
+      sheet = createSheet(sheetName, sheetType);
+   }
+   
+   return sheet;
+}
+
+function createSheet(sheetName, sheetType)
+{
+  var sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  var headers = [];
+  
+   if(!sheet) {
+      SpreadsheetApp.getActive().insertSheet(sheetName);
+      sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
+      
+      if(sheetType === "Monthly Summary"){
+        headers = [[ "Month-Year", "Total"]];
+        sheet.getRange("A1:B1").setValues(headers);
+      }
+      else if(sheetType === "Yearly Summary"){
+        headers = [[ "Year", "Total"]];
+        sheet.getRange("A1:B1").setValues(headers);
+      }
+      else if(sheetType === "Expense"){
+        headers = [[ "Date", "Description", "Amount" ]];
+        sheet.getRange("A1:C1").setValues(headers);
+      }
+   }
+   
+   return sheet;
+}
+
+function removeDuplicateRows(sheet) {
+  var data = sheet.getDataRange().getValues();
+  var newData = new Array();
+  
+  for(i in data){
+    var row = data[i];
+    var duplicate = false;
+    
+    for(j in newData){
+      if(row.join() == newData[j].join()){
+        duplicate = true;
+      }
+    }
+
+    if(!duplicate){
+      newData.push(row);
+    }
+  }
+
+  sheet.clearContents();
+  sheet.getRange(1, 1, newData.length, newData[0].length).setValues(newData);
+}

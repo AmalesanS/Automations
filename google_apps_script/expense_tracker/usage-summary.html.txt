@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+  </head>
+  <body>
+  
+<h2>Electricity usage details</h2>
+
+<table style="width:100%" border="1">
+  <tr>
+    <th colspan="2">Last Month Electricity usage summary</th> 
+  </tr>
+  <tr>
+    <td>From/To Date/NoOfDays</td>
+    <td><?= lastMonthUsageData.fromDate ?> to <?= lastMonthUsageData.toDate ?> - <?= lastMonthUsageData.totalDays ?> days </td>
+  </tr>
+  <tr>
+    <td>Total Units</td>
+    <td><?= lastMonthUsageData.totalUnits ?></td>
+  </tr>
+  <tr>
+    <td>Average Units</td>
+    <td><?= lastMonthUsageData.averageUnits ?></td>
+  </tr>
+  <tr>
+    <td>Paid Bill Amount</td>
+    <td><?= lastMonthUsageData.billAmount ?></td>
+  </tr>
+</table>
+<br />
+<br />
+
+<table style="width:100%" border="1">
+  <tr>
+    <th colspan="2">Current Month Electricity usage summary</th> 
+  </tr>
+  <tr>
+    <td>From/To Date</td>
+    <td><?= currentMonthUsageData.fromDate ?> to <?= currentMonthUsageData.toDate ?> - <?= currentMonthUsageData.totalDays ?> days</td>
+  </tr>
+  <tr>
+    <td>Total Units till today</td>
+    <td><?= currentMonthUsageData.totalUnitsTillToday ?></td>
+  </tr>
+  <tr>
+    <td>Total Units Forecast**<br /><span style="font-size: 9pt; color: #ff0000; font-family: arial}">Based on current average units **</span></td>
+    <td><?= currentMonthUsageData.totalUnits ?></td>
+  </tr>
+  <tr>
+    <td>Average Units</td>
+    <td><?= currentMonthUsageData.averageUnits ?></td>
+  </tr>
+  <tr>
+    <td>Approx. bill amount Forecast**<br /><span style="font-size: 9pt; color: #ff0000; font-family: arial}">Based on current average units **</span></td>
+    <td><?= currentMonthUsageData.billAmount ?></td>
+  </tr>
+</table>
+
+<br />
+<br />
+
+<span> <?= currentMonthUsageData.usageNote ?> </span>
+
+  </body>
+</html>

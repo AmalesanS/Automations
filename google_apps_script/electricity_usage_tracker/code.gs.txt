@@ -1,0 +1,214 @@
+String.prototype.replaceAll = function(search, replacement) {
+        var target = this;
+        return target.replace(new RegExp(search, 'g'), replacement);
+};
+
+function processElectrictyUsageSummary() {
+  var userData = getUserData();
+  var enercareResponseXml = fetchUsageSummaryFromEnercare(userData);
+  var lastMonthUsageData = getLastMonthUsageData(enercareResponseXml);
+  var currentMonthUsageData = getCurrentMonthUsageData(enercareResponseXml, lastMonthUsageData);
+  sendEmail(lastMonthUsageData, currentMonthUsageData, userData);
+}
+
+function getUserData() {
+  var userData = {};
+  
+  userData.userName = SpreadsheetApp.getActiveSheet().getRange(1, 2).getValue();
+  userData.passWord = SpreadsheetApp.getActiveSheet().getRange(2, 2).getValue();
+  userData.email  =  SpreadsheetApp.getActiveSheet().getRange(3, 2).getValue();
+  
+  return userData;
+}
+
+function fetchUsageSummaryFromEnercare(userData) {
+  
+  var url = "https://www.myenercare.ca/users/login/";
+  
+  var payload =
+   {
+     "Username" : userData.userName,
+     "Password" : userData.passWord,
+     "login" : "Login"
+   };// The actual values of the post variables (like user_session[email]) depends on the site so u need to get it either from the html of the login page or using the developer tools I mentioned.
+  var options =
+   {
+     "method" : "post",
+     "payload" : payload,
+     "followRedirects" : false
+   };
+  var login = UrlFetchApp.fetch( url, options);
+  
+  var sessionDetails = login.getAllHeaders()['Set-Cookie'];
+
+  var response = UrlFetchApp.fetch ("https://www.myenercare.ca", {"headers" : {"Cookie" : sessionDetails} });
+  var enercareResponseHtml = response.getContentText("UTF-8");
+  
+  return convertResponseHtmlToXml(enercareResponseHtml);
+}
+
+function convertResponseHtmlToXml(enercareResponseHtml){
+  
+  //Xml is deprecated. cannot use this
+  /*var doc = Xml.parse(content, true);
+  var bodyHtml = doc.html.body.toXmlString();
+  var doc = XmlService.parse(bodyHtml);
+  var enercareResponseHtml = doc.getRootElement();*/
+  
+  // Replacing the below charecters in order to convert html to xml
+  enercareResponseHtml = enercareResponseHtml.replaceAll("&nbsp;","").replaceAll("&nbsp","").replaceAll("javascript\"\"","javascript\"").replaceAll("&copy;","");
+  enercareResponseHtml = enercareResponseHtml.replace("//<![CDATA[","").replaceAll("//]]>","");
+  enercareResponseHtml = enercareResponseHtml.replaceAll("<script", "<script><![CDATA[<script");
+  enercareResponseHtml = enercareResponseHtml.replaceAll("</script>","</script>  ]]></script>");
+  
+  var responseXml = XmlService.parse(enercareResponseHtml);
+  return responseXml.getRootElement();
+}
+
+function getLastMonthUsageData(enercareResponseXml){
+    var lastMonthUsageData = {};
+    var lastMonthConsumptionHtml = getElementsByClassName(enercareResponseXml, 't-widget t-grid');
+    var lastMonthConsumptionDetails = lastMonthConsumptionHtml[0].getChildren('table')[0].getChildren('tbody')[0].getChildren('tr')[0].getChildren('td');
+    var lastMonthBillAmountHtml = getElementsByClassName(enercareResponseXml, 'bill-summary');
+    var lastMonthBillAmount = lastMonthBillAmountHtml[0].getChildren('ul')[0].getChildren('li')[6].getValue().split("$")[1];
+    
+    lastMonthUsageData.fromDate = lastMonthConsumptionDetails[3].getValue();
+    lastMonthUsageData.toDate = lastMonthConsumptionDetails[4].getValue();
+    lastMonthUsageData.totalUnits = lastMonthConsumptionDetails[5].getValue();
+    lastMonthUsageData.billAmount = lastMonthBillAmount;
+    
+    //format dates to calculate the date difference
+    var formattedFromDate = getFormattedDate(lastMonthUsageData.fromDate);
+    var formattedToDate = addDays(getFormattedDate(lastMonthUsageData.toDate), -1);
+    
+    //Divide total Units by No_Of_Days in last month to get the average usage of last month
+    var noOfDaysLastMonth = dateDifference(formattedFromDate,formattedToDate);
+    var lastMonthAverageUnits = lastMonthUsageData.totalUnits/noOfDaysLastMonth;
+
+    lastMonthUsageData.toDate = Utilities.formatDate(formattedToDate, 'EST', 'MM/dd/yyyy');
+    lastMonthUsageData.averageUnits = lastMonthAverageUnits.toFixed(3);
+    lastMonthUsageData.totalDays = noOfDaysLastMonth; 
+
+    return lastMonthUsageData;
+}
+
+function getCurrentMonthUsageData(enercareResponseXml,lastMonthUsageData){
+  var currentMonthUsageData = {};
+  var currentMonthConsumptionHtml = getElementsByClassName(enercareResponseXml, 'consumption-table-body');
+  var currentMonthConsumptionDetails = currentMonthConsumptionHtml[0].getChildren('tr');
+  var totalUnits = 0;
+  var lastMonthToDate = getFormattedDate(lastMonthUsageData.toDate); //get the date object from the display date
+  var currentMonthToDate = lastMonthToDate;
+  var currentMonthFromDate = addDays(lastMonthToDate, 1);
+  var totalDaysPassed = 0;
+ 
+   //Increment one month from the last month - to date to get the current month - to date
+  if(lastMonthToDate.getMonth().toFixed(0)==="11"){
+     currentMonthToDate.setYear(lastMonthToDate.getYear()+1);
+     currentMonthToDate.setMonth((lastMonthToDate.getMonth()+1) % 12);
+  }else{
+     currentMonthToDate.setMonth((lastMonthToDate.getMonth()+1) % 12);
+  }
+  
+  for (var j = 0; j < currentMonthConsumptionDetails.length; j++) {
+     var unitsAsOnDate = getFormattedDate(currentMonthConsumptionDetails[j].getChildren('td')[0].getValue().trim().split(" ")[0]);
+     
+     if(unitsAsOnDate.getTime()>=currentMonthFromDate && unitsAsOnDate.getTime()<=currentMonthToDate){
+       totalUnits=totalUnits + Math.abs(currentMonthConsumptionDetails[j].getChildren('td')[1].getValue());
+       totalDaysPassed=totalDaysPassed+1;
+     }
+  }
+  
+  currentMonthUsageData.fromDate = Utilities.formatDate(currentMonthFromDate, 'EST', 'MM/dd/yyyy');;
+  currentMonthUsageData.toDate = Utilities.formatDate(currentMonthToDate, 'EST', 'MM/dd/yyyy');
+  currentMonthUsageData.totalUnitsTillToday = totalUnits.toFixed(3);
+  var totalDays = dateDifference(currentMonthFromDate, currentMonthToDate);
+  currentMonthUsageData.totalDays = totalDays;
+  var currentMonthAverageUnits = totalUnits/totalDaysPassed;
+  currentMonthUsageData.averageUnits = currentMonthAverageUnits.toFixed(3);
+  currentMonthUsageData.totalUnits = totalDays*currentMonthUsageData.averageUnits;
+  currentMonthUsageData.billAmount = (lastMonthUsageData.billAmount/lastMonthUsageData.totalUnits)*(currentMonthUsageData.averageUnits*totalDays);
+  currentMonthUsageData.billAmount = currentMonthUsageData.billAmount.toFixed(2);
+  
+  
+  if(currentMonthUsageData.averageUnits>lastMonthUsageData.averageUnits)
+    currentMonthUsageData.usageNote = "Note : Your current month electricity consumption is greater than last month";
+  else
+    currentMonthUsageData.usageNote = "Note : Your current month electricity consumption is lesser than last month";
+
+  return currentMonthUsageData;
+}
+
+function sendEmail(lastMonthUsageData,currentMonthUsageData, userData)
+{
+  var template = HtmlService.createTemplateFromFile('usage-summary');
+  
+  template.lastMonthUsageData = lastMonthUsageData;
+  template.currentMonthUsageData = currentMonthUsageData;
+  
+  var message = template.evaluate().getContent();
+  
+  MailApp.sendEmail({
+    to: userData.email,
+    subject: "Your electricity usage !!",
+    htmlBody: message
+  });
+}
+
+function getFormattedDate(dateStr){
+  var dateArray = [{}];
+  dateArray = dateStr.split("/");
+    
+  var month = (dateArray[0].length===1)? "0"+dateArray[0] : dateArray[0];
+  var day   = (dateArray[1].length===1)? "0"+dateArray[1] : dateArray[1];
+  
+  return new Date(dateArray[2],month-1,day,0,1,0);
+}
+
+function addDays(date, days) {
+  var result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
+function dateDifference(fromDate,toDate)
+{
+  //to find the date difference correctly
+  toDate.setHours(23);
+  toDate.setMinutes(50);
+  //r diffInDays = Math.floor((toDate.getTime()-fromDate.getTime())/(24*3600*1000));
+  // 24*3600*1000 is milliseconds in a day
+  
+  const diffTime = Math.abs(toDate - fromDate);
+  const diffInDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  Logger.log("fromDate="+fromDate+"| toDate="+toDate+"| diffInDays="+diffInDays);
+
+  return diffInDays;
+}
+
+function getElementsByClassName(element, classToFind) {  
+  var data = [];
+  var descendants = element.getDescendants();
+  descendants.push(element);  
+  for(i in descendants) {
+    var elt = descendants[i].asElement();
+    if(elt != null) {
+      var classes = elt.getAttribute('class');
+      if(classes != null) {
+        classes = classes.getValue();
+        if(classes == classToFind) data.push(elt);
+        else {
+          classes = classes.split(' ');
+          for(j in classes) {
+            if(classes[j] == classToFind) {
+              data.push(elt);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+  return data;
+}

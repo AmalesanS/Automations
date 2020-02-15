@@ -1,0 +1,1 @@
+C:/Users/Am/Desktop/temp/python/setWindowsWallpaper.py
